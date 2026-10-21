@@ -42,3 +42,17 @@ def test_nlms_is_stable_at_full_step_size():
     out = nlms(x, d, mu=1.0, order=len(h))
     assert np.all(np.isfinite(out["output"]))
     assert erle_db(d, out["output"]) > 10.0
+
+
+def test_freeze_mask_holds_weights():
+    x, d, h = system_identification_setup(n=2000, order=8)
+    freeze = np.zeros(len(x), dtype=bool)
+    out = lms(x, d, mu=0.01, order=8, freeze=np.ones(len(x), dtype=bool))
+    np.testing.assert_allclose(out["output"], d, atol=1e-12)
+
+    split = len(x) // 2
+    freeze[:split] = False
+    freeze[split:] = True
+    out = lms(x, d, mu=0.01, order=8, freeze=freeze)
+    assert np.all(np.isfinite(out["weights"]))
+    assert out["weights"].shape == (8,)

@@ -24,9 +24,24 @@ def _mse_curve(error: np.ndarray, block: int) -> np.ndarray:
     return np.mean(trimmed ** 2, axis=1)
 
 
+def _check_freeze(freeze: np.ndarray | None, n: int) -> np.ndarray | None:
+    if freeze is None:
+        return None
+    freeze = np.asarray(freeze, dtype=bool)
+    if freeze.shape[0] != n:
+        raise ValueError("freeze mask must have one entry per sample")
+    return freeze
+
+
 def lms(reference: np.ndarray, desired: np.ndarray, mu: float = 0.01,
-        order: int = DEFAULT_ORDER, block: int = DEFAULT_BLOCK) -> dict:
-    """w(n+1) = w(n) + mu * e(n) * x(n)."""
+        order: int = DEFAULT_ORDER, block: int = DEFAULT_BLOCK,
+        freeze: np.ndarray | None = None) -> dict:
+    """w(n+1) = w(n) + mu * e(n) * x(n).
+
+    ``freeze`` is an optional per-sample mask; where it is True the weights are
+    held constant (used by the double-talk detector).
+    """
+    freeze = _check_freeze(freeze, len(reference))
     x_mat = _taps(reference, order)
     d = np.asarray(desired, dtype=np.float64)
 
@@ -38,7 +53,8 @@ def lms(reference: np.ndarray, desired: np.ndarray, mu: float = 0.01,
         x = x_mat[n]
         y[n] = w @ x
         e[n] = d[n] - y[n]
-        w = w + mu * e[n] * x
+        if freeze is None or not freeze[n]:
+            w = w + mu * e[n] * x
 
     return {"output": e, "prediction": y, "error": e, "weights": w,
             "mse": _mse_curve(e, block)}
@@ -46,8 +62,9 @@ def lms(reference: np.ndarray, desired: np.ndarray, mu: float = 0.01,
 
 def nlms(reference: np.ndarray, desired: np.ndarray, mu: float = 0.5,
          order: int = DEFAULT_ORDER, block: int = DEFAULT_BLOCK,
-         eps: float = 1e-8) -> dict:
+         eps: float = 1e-8, freeze: np.ndarray | None = None) -> dict:
     """w(n+1) = w(n) + mu * e(n) * x(n) / (||x(n)||^2 + eps)."""
+    freeze = _check_freeze(freeze, len(reference))
     x_mat = _taps(reference, order)
     d = np.asarray(desired, dtype=np.float64)
 
@@ -59,7 +76,8 @@ def nlms(reference: np.ndarray, desired: np.ndarray, mu: float = 0.5,
         x = x_mat[n]
         y[n] = w @ x
         e[n] = d[n] - y[n]
-        w = w + mu * e[n] * x / (x @ x + eps)
+        if freeze is None or not freeze[n]:
+            w = w + mu * e[n] * x / (x @ x + eps)
 
     return {"output": e, "prediction": y, "error": e, "weights": w,
             "mse": _mse_curve(e, block)}
@@ -67,13 +85,14 @@ def nlms(reference: np.ndarray, desired: np.ndarray, mu: float = 0.5,
 
 def rls(reference: np.ndarray, desired: np.ndarray, lam: float = 0.99,
         order: int = DEFAULT_ORDER, block: int = DEFAULT_BLOCK,
-        delta: float = 1.0) -> dict:
+        delta: float = 1.0, freeze: np.ndarray | None = None) -> dict:
     """Recursive least squares with forgetting factor ``lam``.
 
     k(n) = P x / (lam + x^T P x)
     w(n+1) = w(n) + k(n) e(n)
     P(n+1) = (P(n) - k(n) x^T P(n)) / lam
     """
+    freeze = _check_freeze(freeze, len(reference))
     x_mat = _taps(reference, order)
     d = np.asarray(desired, dtype=np.float64)
 
@@ -88,10 +107,10 @@ def rls(reference: np.ndarray, desired: np.ndarray, lam: float = 0.99,
         gain = px / (lam + x @ px)
         y[n] = w @ x
         e[n] = d[n] - y[n]
-        w = w + gain * e[n]
-        p_inv = (p_inv - np.outer(gain, px)) / lam
-        # P must stay symmetric; rounding drift otherwise makes it explode.
-        p_inv = 0.5 * (p_inv + p_inv.T)
+        if freeze is None or not freeze[n]:
+            w = w + gain * e[n]
+            p_inv = (p_inv - np.outer(gain, px)) / lam
+            p_inv = 0.5 * (p_inv + p_inv.T)
 
     return {"output": e, "prediction": y, "error": e, "weights": w,
             "mse": _mse_curve(e, block)}

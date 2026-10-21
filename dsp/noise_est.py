@@ -36,11 +36,23 @@ def spectral_flatness(power: np.ndarray) -> np.ndarray:
 
 def detect_silence(power: np.ndarray, margin_db: float = DEFAULT_MARGIN_DB,
                    min_fraction: float = 0.05) -> np.ndarray:
-    """Mark frames whose energy sits close to the recording's noise floor."""
+    """Mark frames that are probably noise only.
+
+    Energy alone fails when the noise dominates the recording, because speech
+    no longer stands out.  Spectral flatness supplies the missing cue: harmonic
+    speech is less flat than broadband noise, so a silent frame must be both
+    close to the noise floor *and* relatively flat.
+    """
     energy_db = frame_energy_db(power)
     floor = np.percentile(energy_db, 20)
-    silence = energy_db < (floor + margin_db)
+    low_energy = energy_db < (floor + margin_db)
 
+    flatness = spectral_flatness(power)
+    flat_enough = flatness >= np.median(flatness)
+    silence = low_energy & flat_enough
+
+    if silence.mean() < min_fraction:
+        silence = low_energy
     if silence.mean() < min_fraction:
         cutoff = np.percentile(energy_db, min_fraction * 100)
         silence = energy_db <= cutoff
