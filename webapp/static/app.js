@@ -15,13 +15,13 @@ function audioBlobUrl(base64) {
 }
 
 function db(value, digits = 1) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  if (value === null || value === undefined || Number.isNaN(value)) return "–";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(digits)} dB`;
 }
 
 function seconds(value) {
-  if (!value && value !== 0) return "—";
+  if (!value && value !== 0) return "–";
   return `${value.toFixed(1)} s`;
 }
 
@@ -109,31 +109,42 @@ function setupCanvas(canvas) {
   return { ctx, width, height };
 }
 
-const MAGMA = [
-  [0, 0, 4], [28, 16, 68], [79, 18, 123], [129, 37, 129], [181, 54, 122],
-  [229, 80, 100], [251, 135, 97], [254, 194, 135], [252, 253, 191],
+const RAMP = [
+  [255, 255, 255], [223, 232, 246], [166, 195, 234], [92, 144, 214],
+  [29, 95, 191], [17, 55, 110], [8, 22, 46],
 ];
 
 const LUT = (() => {
   const table = new Uint8ClampedArray(256 * 3);
   for (let i = 0; i < 256; i += 1) {
-    const x = (i / 255) * (MAGMA.length - 1);
+    const x = (i / 255) * (RAMP.length - 1);
     const low = Math.floor(x);
-    const high = Math.min(low + 1, MAGMA.length - 1);
+    const high = Math.min(low + 1, RAMP.length - 1);
     const f = x - low;
     for (let c = 0; c < 3; c += 1) {
-      table[i * 3 + c] = MAGMA[low][c] + (MAGMA[high][c] - MAGMA[low][c]) * f;
+      table[i * 3 + c] = RAMP[low][c] + (RAMP[high][c] - RAMP[low][c]) * f;
     }
   }
   return table;
 })();
 
+const INK = "#0a0a0a";
+const MUTED = "#6b6b6b";
+const RULE = "#f0f0f0";
+const EDGE = "#e6e6e6";
+
 function drawSpectrogram(canvas, payload) {
   const { ctx, width, height } = setupCanvas(canvas);
-  if (!payload) {
-    ctx.clearRect(0, 0, width, height);
-    return;
-  }
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  if (!payload) return;
+
+  const padL = 30;
+  const padB = 18;
+  const padT = 6;
+  const padR = 4;
+  const plotW = Math.max(1, width - padL - padR);
+  const plotH = Math.max(1, height - padT - padB);
 
   const bytes = decodeBase64(payload.data);
   const offscreen = document.createElement("canvas");
@@ -143,7 +154,7 @@ function drawSpectrogram(canvas, payload) {
   const image = offCtx.createImageData(payload.width, payload.height);
 
   for (let y = 0; y < payload.height; y += 1) {
-    const sourceRow = payload.height - 1 - y; 
+    const sourceRow = payload.height - 1 - y;
     for (let x = 0; x < payload.width; x += 1) {
       const value = bytes[sourceRow * payload.width + x];
       const out = (y * payload.width + x) * 4;
@@ -156,39 +167,56 @@ function drawSpectrogram(canvas, payload) {
   offCtx.putImageData(image, 0, 0);
 
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(offscreen, 0, 0, width, height);
-
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.drawImage(offscreen, padL, padT, plotW, plotH);
+  ctx.strokeStyle = EDGE;
   ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+  ctx.strokeRect(padL + 0.5, padT + 0.5, plotW - 1, plotH - 1);
 
-  ctx.fillStyle = "rgba(230,237,243,0.55)";
-  ctx.font = "10px ui-sans-serif, sans-serif";
-  ctx.fillText("8k", 6, 12);
-  ctx.fillText("0", 6, height - 6);
+  ctx.font = '11px "Geist", system-ui, sans-serif';
+  ctx.fillStyle = MUTED;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const maxKhz = payload.max_frequency / 1000;
+  [0, 0.5, 1].forEach((frac) => {
+    const label = frac === 0 ? "0" : `${Math.round(maxKhz * frac)}k`;
+    ctx.fillText(label, padL - 6, padT + plotH * (1 - frac));
+  });
+
+  ctx.textBaseline = "top";
+  [0, 0.5, 1].forEach((frac, index) => {
+    const x = padL + plotW * frac;
+    const label = `${(payload.duration * frac).toFixed(frac === 0 ? 0 : 1)}s`;
+    ctx.textAlign = index === 0 ? "left" : index === 1 ? "center" : "right";
+    ctx.fillText(label, index === 2 ? width - 2 : x, padT + plotH + 5);
+  });
+  ctx.textAlign = "start";
 }
 
 function drawWaveform(canvas, values, color) {
   const { ctx, width, height } = setupCanvas(canvas);
   ctx.clearRect(0, 0, width, height);
-  if (!values || values.length === 0) return;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
 
   const mid = height / 2;
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.strokeStyle = RULE;
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(0, mid);
-  ctx.lineTo(width, mid);
+  ctx.moveTo(0, mid + 0.5);
+  ctx.lineTo(width, mid + 0.5);
   ctx.stroke();
+
+  if (!values || values.length === 0) return;
 
   ctx.beginPath();
   ctx.moveTo(0, mid);
   for (let i = 0; i < values.length; i += 1) {
     const x = (i / (values.length - 1 || 1)) * width;
-    ctx.lineTo(x, mid - values[i] * (mid - 4));
+    ctx.lineTo(x, mid - values[i] * (mid - 3));
   }
   for (let i = values.length - 1; i >= 0; i -= 1) {
     const x = (i / (values.length - 1 || 1)) * width;
-    ctx.lineTo(x, mid + values[i] * (mid - 4));
+    ctx.lineTo(x, mid + values[i] * (mid - 3));
   }
   ctx.closePath();
   ctx.fillStyle = color;
@@ -198,8 +226,10 @@ function drawWaveform(canvas, values, color) {
 function drawErleChart(canvas, series) {
   const { ctx, width, height } = setupCanvas(canvas);
   ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
 
-  const pad = { left: 46, right: 12, top: 14, bottom: 30 };
+  const pad = { left: 40, right: 18, top: 10, bottom: 26 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
@@ -220,31 +250,39 @@ function drawErleChart(canvas, series) {
   const xOf = (i) => pad.left + (i / Math.max(1, maxLen - 1)) * plotW;
   const yOf = (v) => pad.top + (1 - (v - minY) / (maxY - minY || 1)) * plotH;
 
-  ctx.strokeStyle = "rgba(255,255,255,0.08)";
-  ctx.fillStyle = "rgba(230,237,243,0.5)";
-  ctx.font = "10px ui-sans-serif, sans-serif";
+  ctx.strokeStyle = RULE;
   ctx.lineWidth = 1;
+  ctx.font = '11px "Geist", system-ui, sans-serif';
+  ctx.fillStyle = MUTED;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
 
   for (let value = minY; value <= maxY; value += 10) {
-    const y = yOf(value);
+    const y = Math.round(yOf(value)) + 0.5;
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
-    ctx.fillText(`${value}`, 10, y + 3);
+    ctx.fillText(`${value}`, pad.left - 6, y);
   }
 
   ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = "rgba(210,153,34,0.6)";
+  ctx.strokeStyle = "#d4d4d4";
+  const refY = Math.round(yOf(20)) + 0.5;
   ctx.beginPath();
-  ctx.moveTo(pad.left, yOf(20));
-  ctx.lineTo(width - pad.right, yOf(20));
+  ctx.moveTo(pad.left, refY);
+  ctx.lineTo(width - pad.right, refY);
   ctx.stroke();
   ctx.setLineDash([]);
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("20 dB", width - pad.right, refY - 3);
 
-  ctx.fillStyle = "rgba(230,237,243,0.5)";
-  ctx.fillText("0", pad.left, height - 10);
-  ctx.fillText(`${maxLen} blocks`, width - pad.right - 52, height - 10);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText("0", pad.left, pad.top + plotH + 6);
+  ctx.textAlign = "right";
+  ctx.fillText(`${maxLen} blocks`, width - pad.right, pad.top + plotH + 6);
 
   series.forEach((s) => {
     if (!s.values.length) return;
@@ -268,19 +306,9 @@ function drawErleChart(canvas, series) {
     });
     ctx.stroke();
   });
-
-  const legendWidths = series.map((s) => ctx.measureText(s.name).width + 42);
-  let legendX = width - pad.right - legendWidths.reduce((a, b) => a + b, 0) - 4;
-  series.forEach((s, index) => {
-    ctx.fillStyle = s.color;
-    ctx.fillRect(legendX, pad.top + 4, 10, 3);
-    ctx.fillStyle = "rgba(230,237,243,0.8)";
-    ctx.fillText(s.name, legendX + 15, pad.top + 9);
-    legendX += legendWidths[index];
-  });
+  ctx.textAlign = "start";
+  ctx.textBaseline = "alphabetic";
 }
-
-
 
 function bindDropzone(zoneId, inputId, nameId) {
   const zone = $(zoneId);
@@ -316,6 +344,17 @@ function bindSlider(id, outId, digits = 2) {
   update();
 }
 
+const PANEL_COPY = {
+  denoise: {
+    title: "Single-channel denoise",
+    sub: "Remove noise from one recording. The noise spectrum is learned from the pauses between words.",
+  },
+  anc: {
+    title: "Two-channel adaptive noise cancellation",
+    sub: "One microphone hears the noise, the other hears speech and noise. The filter learns the path between them.",
+  },
+};
+
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.tab === name);
@@ -323,6 +362,14 @@ function switchTab(name) {
   document.querySelectorAll(".panel").forEach((panel) => {
     panel.classList.toggle("active", panel.id === `panel-${name}`);
   });
+
+  const copy = PANEL_COPY[name];
+  if (copy) {
+    $("page-title").textContent = copy.title;
+    $("page-sub").textContent = copy.sub;
+  }
+  $("run-denoise").hidden = name !== "denoise";
+  $("run-anc").hidden = name !== "anc";
   requestAnimationFrame(redraw);
 }
 
@@ -348,6 +395,7 @@ function setStat(id, text, tone) {
   const el = $(id);
   el.textContent = text;
   el.classList.remove("good", "bad");
+  el.classList.toggle("blank", text === "–" || text === "Needs reference");
   if (tone) el.classList.add(tone);
 }
 
@@ -356,14 +404,14 @@ function playDenoise(source) {
   const wasPlaying = !audio.paused;
   audio.src = source === "input" ? state.denoise.inputUrl : state.denoise.outputUrl;
   if (wasPlaying) audio.play();
-  document.querySelectorAll("#panel-denoise .ab-btn").forEach((button) => {
+  document.querySelectorAll("#panel-denoise .seg-btn").forEach((button) => {
     button.classList.toggle("active", button.dataset.source === source);
   });
   state.denoise.current = source;
   drawWaveform(
     $("waveform"),
     source === "input" ? state.denoise.waveform.input : state.denoise.waveform.output,
-    source === "input" ? "rgba(139,152,169,0.55)" : "rgba(63,185,80,0.55)",
+    source === "input" ? "#9a9a9a" : "#0a0a0a",
   );
 }
 
@@ -403,7 +451,7 @@ async function runDenoise() {
       ...data,
       inputUrl: audioBlobUrl(data.input_audio),
       outputUrl: audioBlobUrl(data.output_audio),
-      waveform: { input: data.waveform.input, output: data.waveform.output, current: "output", color: "rgba(63,185,80,0.55)" },
+      waveform: { input: data.waveform.input, output: data.waveform.output, current: "output", color: "#0a0a0a" },
       current: "output",
     };
 
@@ -416,7 +464,7 @@ async function runDenoise() {
     audio.src = state.denoise.outputUrl;
     $("download-denoised").href = state.denoise.outputUrl;
 
-    document.querySelectorAll("#panel-denoise .ab-btn").forEach((button) => {
+    document.querySelectorAll("#panel-denoise .seg-btn").forEach((button) => {
       button.classList.toggle("active", button.dataset.source === "output");
     });
 
@@ -428,8 +476,8 @@ async function runDenoise() {
       setStat("stat-sisdr", db(delta), delta > 0 ? "good" : "bad");
       setStat("stat-segsnr", `${data.metrics.denoised_seg_snr.toFixed(1)} dB`, null);
     } else {
-      setStat("stat-sisdr", "—", null);
-      setStat("stat-segsnr", "—", null);
+      setStat("stat-sisdr", "Needs reference", null);
+      setStat("stat-segsnr", "Needs reference", null);
     }
 
     setStat("stat-duration", seconds(data.duration), null);
@@ -461,7 +509,7 @@ function playAnc(source) {
   }
   if (wasPlaying) audio.play();
 
-  document.querySelectorAll("#panel-anc .ab-btn").forEach((button) => {
+  document.querySelectorAll("#panel-anc .seg-btn").forEach((button) => {
     button.classList.toggle("active", button.dataset.source === source);
   });
 }
@@ -522,7 +570,7 @@ async function runAnc() {
 
     const select = $("anc-filter");
     select.innerHTML = "";
-    const colours = { LMS: "#58a6ff", NLMS: "#f0883e", RLS: "#3fb950" };
+    const colours = { LMS: "#141414", NLMS: "#8a8a8a", RLS: "#1d5fbf" };
     const series = [];
 
     Object.entries(data.results).forEach(([label, result]) => {
@@ -535,7 +583,7 @@ async function runAnc() {
       if (!result.error) {
         series.push({
           name: label,
-          color: colours[label] || "#58a6ff",
+          color: colours[label] || "#1d5fbf",
           values: result.erle_curve || [],
         });
       }
@@ -565,7 +613,7 @@ async function runAnc() {
       );
     }
 
-    document.querySelectorAll("#panel-anc .ab-btn").forEach((button) => {
+    document.querySelectorAll("#panel-anc .seg-btn").forEach((button) => {
       button.classList.toggle("active", button.dataset.source === "output");
     });
 
@@ -611,10 +659,10 @@ $("demo-anc").addEventListener("click", () => {
   loadDemoAnc().catch((error) => showError("anc-error", error.message));
 });
 
-document.querySelectorAll("#panel-denoise .ab-btn").forEach((button) => {
+document.querySelectorAll("#panel-denoise .seg-btn").forEach((button) => {
   button.addEventListener("click", () => playDenoise(button.dataset.source));
 });
-document.querySelectorAll("#panel-anc .ab-btn").forEach((button) => {
+document.querySelectorAll("#panel-anc .seg-btn").forEach((button) => {
   button.addEventListener("click", () => playAnc(button.dataset.source));
 });
 

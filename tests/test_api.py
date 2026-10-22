@@ -31,7 +31,7 @@ def test_health():
 def test_index_serves_html():
     response = client.get("/")
     assert response.status_code == 200
-    assert "Adaptive Noise Reduction" in response.text
+    assert "Anechoic" in response.text
 
 
 def test_denoise_returns_audio_and_spectrograms():

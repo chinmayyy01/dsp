@@ -3,41 +3,78 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Adaptive Noise Reduction</title>
+  <title>Anechoic · adaptive noise reduction</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <h1>Adaptive Noise Reduction</h1>
-      <p class="subtitle">Adaptive signal processing demo — LMS / NLMS / RLS, spectral tracking, STFT</p>
+    <div class="topbar-inner">
+      <span class="brand">
+        <svg class="mark" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M3 8v4M7 4v12M11 6v8M15 2v16M19 9v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        </svg>
+        <span class="brand-name">Anechoic</span>
+      </span>
+      <span class="topbar-note">Adaptive signal processing</span>
     </div>
-    <span class="badge">DSP project</span>
   </header>
 
-  <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="denoise" role="tab">Single-channel denoise</button>
-    <button class="tab" data-tab="anc" role="tab">Two-channel ANC</button>
-  </nav>
+  <main class="page">
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="denoise" role="tab">Single channel</button>
+      <button class="tab" data-tab="anc" role="tab">Two channel</button>
+    </nav>
 
-  <main>
+    <div class="title-row">
+      <div class="title-block">
+        <h1 id="page-title">Single-channel denoise</h1>
+        <p class="title-sub" id="page-sub">Remove noise from one recording. The noise spectrum is learned from the pauses between words.</p>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="run-denoise">Remove noise</button>
+        <button class="btn primary" id="run-anc" hidden>Cancel noise</button>
+      </div>
+    </div>
+
     <section id="panel-denoise" class="panel active">
-      <div class="grid">
-        <aside class="card controls">
-          <h2>Input</h2>
+      <div class="metrics" id="denoise-stats" hidden>
+        <div class="metric">
+          <span>Noise floor drop</span>
+          <strong id="stat-floor">–</strong>
+        </div>
+        <div class="metric">
+          <span>SI-SDR improvement</span>
+          <strong id="stat-sisdr" class="blank">Needs reference</strong>
+        </div>
+        <div class="metric">
+          <span>Segmental SNR</span>
+          <strong id="stat-segsnr" class="blank">Needs reference</strong>
+        </div>
+        <div class="metric">
+          <span>Duration</span>
+          <strong id="stat-duration">–</strong>
+        </div>
+      </div>
+
+      <div class="work">
+        <aside class="controls">
+          <h2>Recording</h2>
 
           <label class="dropzone" id="drop-audio">
             <input type="file" id="file-audio" accept="audio/*,.wav,.flac,.ogg,.aiff" hidden />
             <strong>Drop a noisy recording</strong>
-            <span>or click to browse — WAV, FLAC, OGG</span>
-            <em id="audio-name">no file selected</em>
+            <span>WAV, FLAC or OGG</span>
+            <em id="audio-name">No file selected</em>
           </label>
-          <button class="ghost" id="demo-denoise">Try a demo recording</button>
+
+          <button class="btn ghost" id="demo-denoise">Try a demo recording</button>
 
           <label class="field">
-            <span>Clean reference <small>(optional — enables SI-SDR)</small></span>
+            <span>Clean reference <small>enables SI-SDR</small></span>
             <input type="file" id="file-reference" accept="audio/*,.wav,.flac,.ogg,.aiff" />
           </label>
 
@@ -47,8 +84,8 @@
             <label class="field">
               <span>Gain rule</span>
               <select id="method">
-                <option value="adaptive_wiener">Adaptive Wiener (default)</option>
-                <option value="spectral_subtraction">Spectral subtraction (baseline)</option>
+                <option value="adaptive_wiener">Adaptive Wiener</option>
+                <option value="spectral_subtraction">Spectral subtraction</option>
               </select>
             </label>
 
@@ -63,7 +100,7 @@
             </label>
 
             <label class="field">
-              <span>Noise tracker memory <output id="alpha-out">0.95</output></span>
+              <span>Noise tracker memory <output id="alpha-out">0.950</output></span>
               <input type="range" id="alpha" min="0.7" max="0.995" step="0.005" value="0.95" />
             </label>
 
@@ -79,51 +116,38 @@
 
             <label class="check">
               <input type="checkbox" id="use-ale" />
-              <span>Adaptive line enhancer (tonal pre-stage)</span>
+              <span>Adaptive line enhancer</span>
             </label>
           </details>
 
-          <button class="primary" id="run-denoise">Remove noise</button>
-          <p class="hint">Processed locally by the Python backend. Files are not stored.</p>
+          <p class="hint">Processed by the local Python backend. Files are not stored.</p>
           <p class="error" id="denoise-error" hidden></p>
         </aside>
 
         <div class="results">
-          <div class="stats" id="denoise-stats" hidden>
-            <div class="stat">
-              <span>Noise floor drop</span>
-              <strong id="stat-floor">—</strong>
-            </div>
-            <div class="stat">
-              <span>SI-SDR improvement</span>
-              <strong id="stat-sisdr">—</strong>
-            </div>
-            <div class="stat">
-              <span>Segmental SNR</span>
-              <strong id="stat-segsnr">—</strong>
-            </div>
-            <div class="stat">
-              <span>Duration</span>
-              <strong id="stat-duration">—</strong>
-            </div>
+          <div class="empty" id="denoise-empty">
+            <p>Drop a recording, then press <strong>Remove noise</strong>.</p>
+            <p class="muted">A voice memo recorded next to a fan, or a file with 50 Hz hum, is a good test.</p>
           </div>
 
-          <div class="card player" id="denoise-player" hidden>
-            <div class="player-head">
-              <div class="ab">
-                <button class="ab-btn active" data-source="input">Original</button>
-                <button class="ab-btn" data-source="output">Denoised</button>
+          <section class="player" id="denoise-player" hidden>
+            <div class="panel-head">
+              <div class="seg" role="group" aria-label="Playback source">
+                <button class="seg-btn active" data-source="input">Original</button>
+                <button class="seg-btn" data-source="output">Denoised</button>
               </div>
-              <a class="download" id="download-denoised" download="denoised.wav">Download WAV</a>
+              <a class="text-link" id="download-denoised" download="denoised.wav">Download WAV</a>
             </div>
-            <audio id="denoise-audio" controls></audio>
-            <canvas id="waveform" height="90"></canvas>
-          </div>
+            <div class="transport">
+              <audio id="denoise-audio" controls></audio>
+            </div>
+            <canvas id="waveform" height="88"></canvas>
+          </section>
 
-          <div class="card viz" id="denoise-viz" hidden>
-            <div class="viz-head">
+          <section class="viz" id="denoise-viz" hidden>
+            <div class="panel-head">
               <h2>Spectrograms</h2>
-              <span class="legend">same dB scale, 0 dB = input peak</span>
+              <span class="meta">Same dB scale · 0 dB = input peak</span>
             </div>
             <div class="spec-row">
               <figure>
@@ -135,104 +159,104 @@
                 <figcaption>After adaptive filtering</figcaption>
               </figure>
             </div>
-          </div>
-
-          <div class="empty" id="denoise-empty">
-            <p>Drop a recording and press <strong>Remove noise</strong>.</p>
-            <p class="muted">Try a voice memo recorded next to a fan, or a file with 50 Hz hum.</p>
-          </div>
+          </section>
         </div>
       </div>
     </section>
 
     <section id="panel-anc" class="panel">
-      <div class="grid">
-        <aside class="card controls">
-          <h2>Two recordings</h2>
-          <p class="hint">One mic near the noise, one mic with speech + noise. Both must be the same length.</p>
+      <div class="work">
+        <aside class="controls">
+          <h2>Recordings</h2>
 
-          <label class="dropzone small" id="drop-primary">
+          <label class="dropzone" id="drop-primary">
             <input type="file" id="file-primary" accept="audio/*,.wav,.flac,.ogg,.aiff" hidden />
             <strong>Primary</strong>
-            <span>speech + noise</span>
-            <em id="primary-name">no file selected</em>
+            <span>Speech and noise</span>
+            <em id="primary-name">No file selected</em>
           </label>
 
-          <label class="dropzone small" id="drop-reference">
+          <label class="dropzone" id="drop-reference">
             <input type="file" id="file-reference-anc" accept="audio/*,.wav,.flac,.ogg,.aiff" hidden />
             <strong>Reference</strong>
-            <span>noise only</span>
-            <em id="reference-name">no file selected</em>
+            <span>Noise only</span>
+            <em id="reference-name">No file selected</em>
           </label>
-          <button class="ghost" id="demo-anc">Load demo pair</button>
+
+          <button class="btn ghost" id="demo-anc">Load demo pair</button>
 
           <details class="advanced" open>
             <summary>Adaptive filter</summary>
 
             <label class="field">
-              <span>Filter length <output id="order-out">32</output> taps</span>
+              <span>Filter length <span class="value"><output id="order-out">32</output> taps</span></span>
               <input type="range" id="order" min="8" max="128" step="8" value="32" />
             </label>
 
             <label class="check"><input type="checkbox" id="run-lms" checked /><span>LMS</span></label>
             <label class="field">
-              <span>LMS step size μ <output id="mu-lms-out">0.002</output></span>
-              <input type="range" id="mu-lms" min="0.0002" max="0.02" step="0.0002" value="0.002" />
+              <span>LMS step size <output id="mu-lms-out">0.0040</output></span>
+              <input type="range" id="mu-lms" min="0.0002" max="0.02" step="0.0002" value="0.004" />
             </label>
 
             <label class="check"><input type="checkbox" id="run-nlms" checked /><span>NLMS</span></label>
             <label class="field">
-              <span>NLMS step size μ <output id="mu-nlms-out">0.10</output></span>
+              <span>NLMS step size <output id="mu-nlms-out">0.10</output></span>
               <input type="range" id="mu-nlms" min="0.01" max="1" step="0.01" value="0.1" />
             </label>
 
             <label class="check"><input type="checkbox" id="run-rls" checked /><span>RLS</span></label>
             <label class="field">
-              <span>RLS forgetting factor λ <output id="lambda-out">0.995</output></span>
+              <span>RLS forgetting factor <output id="lambda-out">0.995</output></span>
               <input type="range" id="lambda" min="0.9" max="0.999" step="0.001" value="0.995" />
             </label>
 
             <label class="check"><input type="checkbox" id="align" checked /><span>Auto-align reference mic</span></label>
           </details>
 
-          <button class="primary" id="run-anc">Cancel noise</button>
           <p class="error" id="anc-error" hidden></p>
         </aside>
 
         <div class="results">
-          <div class="card" id="anc-player" hidden>
-            <div class="player-head">
-              <div class="ab">
-                <button class="ab-btn active" data-source="input">Original</button>
-                <button class="ab-btn" data-source="output">Cancelled</button>
+          <div class="empty" id="anc-empty">
+            <p>Adaptive cancellation needs a <strong>reference</strong> channel.</p>
+            <p class="muted">One mic near the noise, one with speech. No second mic? Use the single-channel tab.</p>
+          </div>
+
+          <section class="player" id="anc-player" hidden>
+            <div class="panel-head">
+              <div class="seg" role="group" aria-label="Playback source">
+                <button class="seg-btn active" data-source="input">Original</button>
+                <button class="seg-btn" data-source="output">Cancelled</button>
               </div>
-              <label class="inline-select">
+              <label class="inline-field">
                 Filter
                 <select id="anc-filter"></select>
               </label>
             </div>
-            <audio id="anc-audio" controls></audio>
-          </div>
+            <div class="transport">
+              <audio id="anc-audio" controls></audio>
+            </div>
+          </section>
 
-          <div class="card viz" id="anc-viz" hidden>
-            <div class="viz-head">
+          <section class="viz" id="anc-viz" hidden>
+            <div class="panel-head">
               <h2>Convergence</h2>
-              <span class="legend">ERLE (dB) per 256-sample block, 0.5 s smoothing</span>
+              <span class="legend">
+                <span class="key"><i class="dot lms"></i>LMS</span>
+                <span class="key"><i class="dot nlms"></i>NLMS</span>
+                <span class="key"><i class="dot rls"></i>RLS</span>
+              </span>
             </div>
             <canvas id="erle-chart" height="260"></canvas>
-            <div class="stats tight">
-              <div class="stat"><span>Filter length</span><strong id="anc-order">—</strong></div>
-              <div class="stat"><span>ERLE</span><strong id="anc-erle">—</strong></div>
-              <div class="stat"><span>Reference lag</span><strong id="anc-lag">—</strong></div>
-              <div class="stat"><span>Converged at</span><strong id="anc-conv">—</strong></div>
+            <p class="hint">ERLE is total power reduction, averaged over 0.5 s. It plateaus near the speech-to-noise ratio. Convergence is the first block at or above 20 dB.</p>
+            <div class="metrics inline">
+              <div class="metric"><span>Filter length</span><strong id="anc-order">–</strong></div>
+              <div class="metric"><span>ERLE</span><strong id="anc-erle">–</strong></div>
+              <div class="metric"><span>Reference lag</span><strong id="anc-lag">–</strong></div>
+              <div class="metric"><span>Converged at</span><strong id="anc-conv">–</strong></div>
             </div>
-            <p class="hint">ERLE = total power reduction, 0.5 s moving average. It plateaus near the speech-to-noise ratio once the noise is cancelled. Convergence = first block at or above 20 dB.</p>
-          </div>
-
-          <div class="empty" id="anc-empty">
-            <p>Adaptive noise cancellation needs a <strong>reference</strong> channel.</p>
-            <p class="muted">No second mic? Use the single-channel tab — it needs only one file.</p>
-          </div>
+          </section>
         </div>
       </div>
     </section>

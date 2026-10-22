@@ -3,6 +3,7 @@
 Web app that removes noise from audio using adaptive DSP: an LMS/NLMS/RLS noise
 canceller for two microphones, and a single-file denoiser built on STFT noise
 tracking and a decision-directed Wiener gain. Plain NumPy/SciPy, no ML.
+The interface is called **Anechoic**.
 
 ![Denoise tab](assets/screenshot-denoise.png)
 
