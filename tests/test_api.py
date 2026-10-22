@@ -126,3 +126,48 @@ def test_demo_clips_are_available_audio():
         assert np.max(np.abs(audio)) <= 1.0
 
     assert client.get("/api/demo/nope").status_code == 404
+
+
+def test_anc_resamples_mismatched_reference_rate():
+    rate = 16000
+    clean = synth.speech_like(2.0, rate, seed=6)
+    noise = synth.fan_noise(len(clean), rate, seed=6)
+    primary = clean + 0.5 * noise
+    reference_low = synth.fan_noise(len(clean), rate, seed=6)
+
+    import soundfile as sf
+    from scipy.signal import resample_poly
+
+    reference_22k = resample_poly(reference_low, 22050, rate)
+    response = client.post(
+        "/api/anc",
+        files={
+            "primary": ("primary.wav", wav_bytes(primary, rate), "audio/wav"),
+            "reference": ("reference.wav", wav_bytes(reference_22k, 22050), "audio/wav"),
+        },
+        data={"settings": json.dumps({"filters": ["nlms"], "order": 16})},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert any("resampled" in message for message in payload["messages"])
+    assert payload["results"]["NLMS"]["erle_db"] > 3.0
+
+
+def test_anc_warns_on_uncorrelated_reference():
+    rate = 16000
+    clean = synth.speech_like(2.0, rate, seed=8)
+    primary = clean + 0.5 * synth.fan_noise(len(clean), rate, seed=8)
+    unrelated = synth.white_noise(len(clean), seed=99)
+
+    response = client.post(
+        "/api/anc",
+        files={
+            "primary": ("primary.wav", wav_bytes(primary, rate), "audio/wav"),
+            "reference": ("reference.wav", wav_bytes(unrelated, rate), "audio/wav"),
+        },
+        data={"settings": json.dumps({"filters": ["nlms"], "order": 16})},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["correlation"] < 0.2
+    assert any("uncorrelated" in message for message in payload["messages"])

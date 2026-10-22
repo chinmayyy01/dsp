@@ -620,7 +620,8 @@ async function runAnc() {
     const failed = Object.entries(data.results)
       .filter(([, result]) => result.error)
       .map(([label, result]) => `${label}: ${result.error}`);
-    if (failed.length) toast(failed.join(" "));
+    const notes = [...(data.messages || []), ...failed];
+    if (notes.length) toast(notes.join(" "));
 
     requestAnimationFrame(() => drawErleChart($("erle-chart"), series));
   } catch (error) {

@@ -9,6 +9,7 @@ Endpoints
 
 import io
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -309,7 +310,7 @@ def denoise_endpoint(
 
 
 def align_reference(primary: np.ndarray, reference: np.ndarray, rate: int,
-                    max_lag_ms: float = 100.0) -> tuple[np.ndarray, int]:
+                    max_lag_ms: float = 500.0) -> tuple[np.ndarray, int]:
     """Delay the reference so that its direct path lines up with the primary.
 
     Cross-correlation peak location gives the bulk delay between microphones.
@@ -341,7 +342,13 @@ def align_reference(primary: np.ndarray, reference: np.ndarray, rate: int,
         padded = np.concatenate([np.zeros(lag), reference[:-lag]])
     else:
         padded = np.concatenate([reference[-lag:], np.zeros(-lag)])
-    return padded[:n], lag
+    padded = padded[:n]
+
+    check = min(len(primary), 2 * rate)
+    score = float(np.corrcoef(primary[:check], padded[:check])[0, 1])
+    if not np.isfinite(score) or score < 0.2:
+        return reference, 0
+    return padded, lag
 
 
 def _smooth_series(values: list[float | None], width: int) -> list[float | None]:
@@ -397,7 +404,9 @@ def anc_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if ref_rate != rate:
-        raise HTTPException(status_code=400, detail="Both files must share a sample rate.")
+        factor = math.gcd(int(ref_rate), int(rate))
+        reference_signal = resample_poly(reference_signal, rate // factor, ref_rate // factor)
+        messages.append(f"Reference resampled from {ref_rate} Hz to {rate} Hz.")
 
     n = min(len(primary_signal), len(reference_signal), int(ANC_MAX_SECONDS * rate))
     primary_signal = primary_signal[:n]
@@ -407,6 +416,14 @@ def anc_endpoint(
     lag = 0
     if align:
         reference_signal, lag = align_reference(primary_signal, reference_signal, rate)
+
+    window = min(len(primary_signal), 2 * rate)
+    correlation = float(np.corrcoef(primary_signal[:window], reference_signal[:window])[0, 1])
+    if not np.isfinite(correlation):
+        correlation = 0.0
+    if correlation < 0.2:
+        messages.append("The two recordings look uncorrelated. ANC can only cancel noise "
+                        "that appears in both microphones.")
 
     order = _int(options.get("order"), 32, 4, 128)
     selected = options.get("filters", ["lms", "nlms", "rls"])
@@ -465,6 +482,7 @@ def anc_endpoint(
         "duration": n / rate,
         "lag_samples": lag,
         "lag_ms": lag / rate * 1000.0,
+        "correlation": correlation,
         "input_audio": audio_io.encode_wav(primary_signal, rate),
         "results": results,
         "best": best,
