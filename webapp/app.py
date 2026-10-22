@@ -48,6 +48,18 @@ def health() -> dict:
     return {"ok": True}
 
 
+@app.get("/api/debug")
+def debug() -> dict:
+    from dsp.lms import NUMBA_AVAILABLE
+
+    version = None
+    if NUMBA_AVAILABLE:
+        import numba
+
+        version = numba.__version__
+    return {"numba": NUMBA_AVAILABLE, "numba_version": version}
+
+
 _DEMO_CACHE: dict[str, np.ndarray] = {}
 DEMO_SECONDS = 10.0
 DEMO_RATE = 16000

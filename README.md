@@ -78,13 +78,14 @@ Render's free web service runs FastAPI directly, no Docker involved.
 2. Render dashboard -> **New +** -> **Web Service** -> connect the repo.
 3. Fill in:
    - **Runtime**: Python 3
-   - **Build command**: `pip install -r requirements.txt`
+   - **Build command**: `pip install -r requirements.txt && python -m dsp.warmup`
    - **Start command**: `uvicorn webapp.app:app --host 0.0.0.0 --port $PORT`
    - **Health check path**: `/api/health`
 4. Add an environment variable `PYTHON_VERSION` = `3.12.14`
    (a `.python-version` file is already in the repo).
 5. Create the service and wait for the first build (~2 min).
-6. Open the URL, then `/ ?demo=1` and `/?demo=anc`.
+6. Open the URL, then `/?demo=1` and `/?demo=anc`. Check `/api/debug` shows
+   `"numba": true`.
 
 Notes for the free plan:
 

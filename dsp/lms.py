@@ -51,12 +51,14 @@ def _check_freeze(freeze: np.ndarray | None, n: int) -> np.ndarray:
 
 
 def _mse_curve(error: np.ndarray, block: int) -> np.ndarray:
-    n_blocks = max(1, len(error) // block)
+    n_blocks = len(error) // block
+    if n_blocks == 0:
+        return np.array([float(np.mean(error ** 2))]) if len(error) else np.zeros(1)
     trimmed = error[:n_blocks * block].reshape(n_blocks, block)
     return np.mean(trimmed ** 2, axis=1)
 
 
-@njit
+@njit(cache=True)
 def _lms_kernel(x_mat, desired, mu, freeze):
     n = desired.shape[0]
     order = x_mat.shape[1]
@@ -77,7 +79,7 @@ def _lms_kernel(x_mat, desired, mu, freeze):
     return w, y, e
 
 
-@njit
+@njit(cache=True)
 def _nlms_kernel(x_mat, desired, mu, freeze, eps):
     n = desired.shape[0]
     order = x_mat.shape[1]
@@ -102,7 +104,7 @@ def _nlms_kernel(x_mat, desired, mu, freeze, eps):
     return w, y, e
 
 
-@njit
+@njit(cache=True)
 def _rls_kernel(x_mat, desired, lam, delta, freeze):
     n = desired.shape[0]
     order = x_mat.shape[1]

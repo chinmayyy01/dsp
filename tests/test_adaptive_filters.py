@@ -56,3 +56,12 @@ def test_freeze_mask_holds_weights():
     out = lms(x, d, mu=0.01, order=8, freeze=freeze)
     assert np.all(np.isfinite(out["weights"]))
     assert out["weights"].shape == (8,)
+
+
+def test_filters_handle_signals_shorter_than_a_block():
+    x = np.random.default_rng(0).standard_normal(100)
+    d = x + 0.1 * np.random.default_rng(1).standard_normal(100)
+    for fn in (lms, nlms, rls):
+        out = fn(x, d, order=8)
+        assert len(out["mse"]) == 1
+        assert np.all(np.isfinite(out["output"]))
