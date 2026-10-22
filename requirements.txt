@@ -1,5 +1,6 @@
 numpy>=2.0
 scipy>=1.13
+numba>=0.60
 soundfile>=0.12
 fastapi>=0.110
 uvicorn[standard]>=0.30
