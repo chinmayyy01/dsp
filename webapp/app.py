@@ -7,10 +7,12 @@ Endpoints
   GET  /api/health    -> liveness probe
 """
 
+import hashlib
 import io
 import json
 import math
 import subprocess
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +30,8 @@ from webapp import audio_io
 STATIC_DIR = Path(__file__).parent / "static"
 ANC_MAX_SECONDS = 20.0
 BLOCK = 256
+ANC_CACHE_PATH = Path(__file__).resolve().parents[1] / "assets" / "demo-anc.json"
+_ANC_CACHE: dict | None = None
 
 app = FastAPI(title="Adaptive Noise Reduction", version="1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -50,6 +54,7 @@ def health() -> dict:
 
 @app.get("/api/debug")
 def debug() -> dict:
+    import dsp
     from dsp.lms import NUMBA_AVAILABLE
 
     version = None
@@ -57,7 +62,11 @@ def debug() -> dict:
         import numba
 
         version = numba.__version__
-    return {"numba": NUMBA_AVAILABLE, "numba_version": version}
+
+    cache_dir = Path(dsp.__file__).parent / "__pycache__"
+    cache_files = sorted(p.name for p in cache_dir.glob("lms.*.nb*")) if cache_dir.exists() else []
+    return {"numba": NUMBA_AVAILABLE, "numba_version": version,
+            "numba_cache": cache_files}
 
 
 _DEMO_CACHE: dict[str, np.ndarray] = {}
@@ -402,18 +411,51 @@ def _erle_curve_smoothed(desired: np.ndarray, error: np.ndarray, block: int = BL
     return values, steady, converged
 
 
-@app.post("/api/anc")
-def anc_endpoint(
-    primary: UploadFile = File(...),
-    reference: UploadFile = File(...),
-    settings: str = Form("{}"),
-) -> dict:
-    options = _parse_settings(settings)
+def _anc_settings(options: dict) -> dict:
+    filters = options.get("filters", ["lms", "nlms", "rls"])
+    if not isinstance(filters, list):
+        filters = ["lms", "nlms", "rls"]
+    return {
+        "filters": sorted(filters),
+        "order": _int(options.get("order"), 32, 4, 128),
+        "mu_lms": _float(options.get("mu_lms"), 0.004, 1e-5, 0.05),
+        "mu_nlms": _float(options.get("mu_nlms"), 0.1, 0.001, 1.0),
+        "lambda_rls": _float(options.get("lambda_rls"), 0.995, 0.9, 0.99999),
+        "align": _bool(options.get("align"), True),
+    }
+
+
+def _anc_cache_key(primary_signal: np.ndarray, reference_signal: np.ndarray,
+                   settings: dict) -> str:
+    digest = hashlib.sha256()
+    digest.update(np.ascontiguousarray(primary_signal, dtype=np.float64).tobytes())
+    digest.update(np.ascontiguousarray(reference_signal, dtype=np.float64).tobytes())
+    digest.update(json.dumps(settings, sort_keys=True).encode())
+    return digest.hexdigest()
+
+
+def _load_anc_cache() -> dict:
+    global _ANC_CACHE
+    if _ANC_CACHE is None:
+        try:
+            _ANC_CACHE = json.loads(ANC_CACHE_PATH.read_text())
+        except (OSError, json.JSONDecodeError):
+            _ANC_CACHE = {}
+    return _ANC_CACHE
+
+
+def _anc_process(primary_bytes: bytes, reference_bytes: bytes, options: dict) -> dict:
     try:
-        primary_signal, rate, messages = audio_io.read_audio(_read_upload(primary))
-        reference_signal, ref_rate, _ = audio_io.read_audio(_read_upload(reference))
+        primary_signal, rate, messages = audio_io.read_audio(primary_bytes)
+        reference_signal, ref_rate, _ = audio_io.read_audio(reference_bytes)
     except audio_io.AudioError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    settings = _anc_settings(options)
+    cached = _load_anc_cache()
+    key = _anc_cache_key(primary_signal, reference_signal, settings)
+    if isinstance(cached, dict) and cached.get("key") == key:
+        return cached["payload"]
 
     if ref_rate != rate:
         factor = math.gcd(int(ref_rate), int(rate))
@@ -424,7 +466,7 @@ def anc_endpoint(
     primary_signal = primary_signal[:n]
     reference_signal = reference_signal[:n]
 
-    align = _bool(options.get("align"), True)
+    align = settings["align"]
     lag = 0
     if align:
         reference_signal, lag = align_reference(primary_signal, reference_signal, rate)
@@ -437,28 +479,21 @@ def anc_endpoint(
         messages.append("The two recordings look uncorrelated. ANC can only cancel noise "
                         "that appears in both microphones.")
 
-    order = _int(options.get("order"), 32, 4, 128)
-    selected = options.get("filters", ["lms", "nlms", "rls"])
-    if not isinstance(selected, list):
-        selected = ["lms", "nlms", "rls"]
-
+    order = settings["order"]
     runners = {
-        "lms": ("LMS", lambda: lms(reference_signal, primary_signal,
-                                   mu=_float(options.get("mu_lms"), 0.004, 1e-5, 0.05),
+        "lms": ("LMS", lambda: lms(reference_signal, primary_signal, mu=settings["mu_lms"],
                                    order=order, block=BLOCK)),
-        "nlms": ("NLMS", lambda: nlms(reference_signal, primary_signal,
-                                      mu=_float(options.get("mu_nlms"), 0.1, 0.001, 1.0),
+        "nlms": ("NLMS", lambda: nlms(reference_signal, primary_signal, mu=settings["mu_nlms"],
                                       order=order, block=BLOCK)),
-        "rls": ("RLS", lambda: rls(reference_signal, primary_signal,
-                                   lam=_float(options.get("lambda_rls"), 0.995, 0.9, 0.99999),
+        "rls": ("RLS", lambda: rls(reference_signal, primary_signal, lam=settings["lambda_rls"],
                                    order=order, block=BLOCK)),
     }
 
     results = {}
-    for key in runners:
-        if key not in selected:
+    for name in ("lms", "nlms", "rls"):
+        if name not in settings["filters"]:
             continue
-        label, run = runners[key]
+        label, run = runners[name]
         try:
             out = run()
         except Exception as exc:
@@ -501,6 +536,28 @@ def anc_endpoint(
         "order": order,
         "messages": messages,
     }
+
+
+@app.post("/api/anc")
+def anc_endpoint(
+    primary: UploadFile = File(...),
+    reference: UploadFile = File(...),
+    settings: str = Form("{}"),
+) -> dict:
+    return _anc_process(_read_upload(primary), _read_upload(reference), _parse_settings(settings))
+
+
+@app.on_event("startup")
+def _warm_filters() -> None:
+    def warm() -> None:
+        try:
+            from dsp.warmup import main as warm_main
+
+            warm_main()
+        except Exception:
+            pass
+
+    threading.Thread(target=warm, daemon=True).start()
 
 
 if __name__ == "__main__":
