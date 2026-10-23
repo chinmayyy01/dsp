@@ -18,11 +18,15 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import correlate, resample_poly
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from dsp import metrics, synth  # noqa: E402
-from dsp.pipeline import denoise  # noqa: E402
+from dsp import metrics, synth
+from dsp.pipeline import denoise
 
 NOISES = ("white", "fan", "babble")
 SNR_DB = 5.0
@@ -66,7 +70,7 @@ def denoise_with_rnnoise(noisy: np.ndarray, rate: int = RATE) -> np.ndarray:
 
 def main() -> None:
     try:
-        import pyrnnoise  # noqa: F401
+        import pyrnnoise
     except ImportError:
         raise SystemExit("pyrnnoise is not installed. Run: uv pip install pyrnnoise")
 
@@ -107,6 +111,37 @@ def main() -> None:
                      f"| {row['pesq']:.2f} | {row['stoi']:.3f} |")
     lines.append("")
     (ROOT / "results" / "summary-neural.md").write_text("\n".join(lines))
+
+    plot_comparison(rows)
+
+
+def plot_comparison(rows: list[dict]) -> None:
+    labels = [("noisy", "noisy", "#8a8a8a"), ("classical", "classical", "#141414"),
+              ("rnnoise", "RNNoise", "#1d5fbf")]
+    keys = [("si_sdr", "SI-SDR (dB)"), ("pesq", "PESQ wideband"), ("stoi", "STOI")]
+    fig, axes = plt.subplots(1, 3, figsize=(13.33, 4.4), dpi=200)
+    fig.patch.set_facecolor("white")
+    x = np.arange(len(NOISES))
+    width = 0.26
+    for ax, (key, title) in zip(axes, keys):
+        for i, (method, label, colour) in enumerate(labels):
+            values = [next(r[key] for r in rows if r["noise"] == n and r["method"] == method)
+                      for n in NOISES]
+            ax.bar(x + (i - 1) * width, values, width, label=label, color=colour)
+        ax.set_xticks(x, NOISES)
+        ax.set_title(title)
+        ax.grid(axis="y", color="#e6e6e6")
+        ax.set_axisbelow(True)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+    axes[0].set_ylim(0, max(14, axes[0].get_ylim()[1]))
+    axes[1].set_ylim(1.0, 1.7)
+    axes[2].set_ylim(0.75, 1.0)
+    axes[0].legend(frameon=False, fontsize=10, ncol=3, loc="upper right")
+    fig.tight_layout(pad=1.2)
+    target = ROOT / "assets" / "neural-comparison.png"
+    fig.savefig(target, facecolor="white")
+    print(f"[ok] {target.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
