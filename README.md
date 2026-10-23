@@ -79,6 +79,34 @@ reference, so they only apply to the benchmark, not to uploads.
 
 ![Perceptual metrics](assets/perceptual.png)
 
+## Classical pipeline vs a pretrained neural denoiser
+
+RNNoise (a small GRU trained for speech enhancement) was run on the same
+mixtures as an offline baseline, resampled to its 48 kHz input and
+delay-compensated before scoring. +5 dB input, 6 s of speech:
+
+| noise | method | SI-SDR | PESQ | STOI |
+|---|---|---|---|---|
+| white | noisy | 5.02 | 1.02 | 0.846 |
+| white | classical | **12.72** | 1.11 | 0.869 |
+| white | RNNoise | 11.65 | **1.48** | **0.922** |
+| fan | noisy | 4.98 | 1.03 | 0.820 |
+| fan | classical | **10.09** | 1.17 | 0.861 |
+| fan | RNNoise | 9.23 | **1.34** | **0.918** |
+| babble | noisy | 4.91 | 1.07 | 0.931 |
+| babble | classical | **9.42** | **1.48** | 0.940 |
+| babble | RNNoise | 8.06 | 1.40 | **0.959** |
+
+The classical system is more faithful (higher SI-SDR everywhere); RNNoise sounds
+better on stationary noise (higher PESQ/STOI), while on babble the classical
+method keeps the higher PESQ. That is the honest answer to "why not deep
+learning": the learned baseline was measured, not assumed.
+
+```bash
+uv pip install pyrnnoise          # optional, benchmark only
+.venv/bin/python benchmarks/neural_baseline.py
+```
+
 ![Spectrograms](assets/spectrograms.png)
 
 ![ANC convergence](assets/learning.png)
