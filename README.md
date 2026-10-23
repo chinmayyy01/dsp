@@ -95,6 +95,17 @@ Notes for the free plan:
   40 MB / 120 s.
 - The demo speech is bundled in `assets/`, so no macOS-only tools are needed on
   the server.
+- The kernels are precompiled at startup and the bundled demo result is shipped
+  in `assets/demo-anc.json`, so the first request does not pay the Numba compile
+  cost.
+
+### Keep it awake
+
+GitHub Actions pings `/api/health` every 10 minutes
+(`.github/workflows/keepalive.yml`), which stops the free instance from sleeping
+between demos. GitHub's scheduler is best-effort, so allow a few minutes of
+skew. A single always-on free service is 744 hours a month, just inside Render's
+750-hour allowance.
 
 ### Why not Vercel
 

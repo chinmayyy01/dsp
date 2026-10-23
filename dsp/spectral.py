@@ -34,7 +34,8 @@ def adaptive_wiener_gain(power: np.ndarray, noise_psd: np.ndarray,
     previous_gain = np.ones(power.shape[1])
 
     for t in range(power.shape[0]):
-        prior = dd * previous_clean / noise
+        frame_noise = noise[t] if noise.ndim > 1 else noise
+        prior = dd * previous_clean / frame_noise
         prior += (1.0 - dd) * np.maximum(gamma[t] - 1.0, 0.0)
         gain = np.clip(prior / (1.0 + prior), gain_floor, 1.0)
         if t > 0 and smooth > 0:
