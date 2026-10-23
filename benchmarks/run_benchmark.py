@@ -153,6 +153,8 @@ def run_grid(clean: np.ndarray) -> list[dict]:
                 "noise": noise_type, "input_snr": snr, "method": "noisy",
                 "si_sdr": baseline_si,
                 "seg_snr": metrics.segmental_snr(clean, noisy),
+                "pesq": metrics.pesq_score(clean, noisy, FS),
+                "stoi": metrics.stoi_score(clean, noisy, FS),
                 "delta_si_sdr": 0.0,
             })
 
@@ -163,6 +165,8 @@ def run_grid(clean: np.ndarray) -> list[dict]:
                     "noise": noise_type, "input_snr": snr, "method": name,
                     "si_sdr": si,
                     "seg_snr": metrics.segmental_snr(clean, result["audio"]),
+                    "pesq": metrics.pesq_score(clean, result["audio"], FS),
+                    "stoi": metrics.stoi_score(clean, result["audio"], FS),
                     "delta_si_sdr": si - baseline_si,
                 })
     return rows
@@ -314,6 +318,27 @@ def plot_snr_sweep(rows: list[dict]) -> None:
     plt.close()
 
 
+def plot_perceptual(rows: list[dict]) -> None:
+    methods = [("noisy", "noisy input"), ("spectral_subtraction", "spectral subtraction"),
+               ("adaptive_wiener", "adaptive Wiener")]
+    colours = ["#8a8a8a", "#1d5fbf", "#141414"]
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.6))
+    for ax, key, title in ((axes[0], "pesq", "PESQ wideband"),
+                           (axes[1], "stoi", "STOI")):
+        values = [np.mean([r[key] for r in rows if r["method"] == m and r[key] is not None])
+                  for m, _ in methods]
+        ax.bar([label for _, label in methods], values, color=colours, width=0.55)
+        ax.set_title(title)
+        ax.grid(axis="y", alpha=0.25)
+        ax.set_axisbelow(True)
+        for spine in ("top", "right"):
+            ax.spines[spine].set_visible(False)
+        ax.tick_params(axis="x", labelsize=8)
+    plt.tight_layout()
+    plt.savefig(FIGURES / "perceptual.png", dpi=160)
+    plt.close()
+
+
 def print_summary(rows: list[dict], anc: dict) -> None:
     print("\nSingle-channel denoising (mean SI-SDR dB over 0/5/10 dB input)")
     print(f"{'noise':8s} {'noisy':>8s} {'spec-sub':>9s} {'adaptive':>9s} {'gain':>7s}")
@@ -373,6 +398,24 @@ def write_markdown(rows: list[dict], anc: dict) -> None:
 
     lines += [
         "",
+        "## Perceptual metrics (mean over noise types and 0/5/10 dB)",
+        "",
+        "PESQ wideband: 1.0 bad to 4.5 excellent. STOI: 0 to 1 intelligibility.",
+        "",
+        "| method | PESQ | STOI |",
+        "|---|---|---|",
+    ]
+    for method, label in (("noisy", "noisy input"),
+                          ("spectral_subtraction", "spectral subtraction"),
+                          ("adaptive_wiener", "adaptive Wiener")):
+        pesq_values = [r["pesq"] for r in rows if r["method"] == method and r["pesq"] is not None]
+        stoi_values = [r["stoi"] for r in rows if r["method"] == method and r["stoi"] is not None]
+        pesq_text = f"{np.mean(pesq_values):.2f}" if pesq_values else "n/a"
+        stoi_text = f"{np.mean(stoi_values):.3f}" if stoi_values else "n/a"
+        lines.append(f"| {label} | {pesq_text} | {stoi_text} |")
+
+    lines += [
+        "",
         "## Figures",
         "",
         "- `figures/learning.png` - ANC convergence (ERLE vs block)",
@@ -380,6 +423,7 @@ def write_markdown(rows: list[dict], anc: dict) -> None:
         "- `figures/spectrograms.png` - before/after/clean spectrograms",
         "- `figures/mu_sweep.png` - step size vs convergence",
         "- `figures/snr_sweep.png` - improvement vs input SNR",
+        "- `figures/perceptual.png` - PESQ and STOI by method",
         "",
     ]
     (RESULTS / "summary.md").write_text("\n".join(lines))
@@ -411,6 +455,7 @@ def main() -> None:
     plot_spectrograms(clean)
     plot_mu_sweep()
     plot_snr_sweep(rows)
+    plot_perceptual(rows)
     print_summary(rows, anc)
     write_markdown(rows, anc)
     print(f"[ok] figures in {FIGURES.relative_to(ROOT)}")

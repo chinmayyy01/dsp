@@ -64,6 +64,21 @@ Two-channel ANC (6 s, fan noise, 32 taps):
 Bigger step size converges faster but has higher misadjustment; RLS converges
 inside one block at O(N^2) cost.
 
+Perceptual metrics, mean over all noise types and 0/5/10 dB input:
+
+| method | PESQ (wideband) | STOI |
+|---|---|---|
+| noisy input | 1.06 | 0.874 |
+| spectral subtraction | 1.31 | 0.904 |
+| adaptive Wiener | 1.36 | 0.896 |
+
+PESQ rewards quality and puts the adaptive gain ahead of plain spectral
+subtraction (+0.30 over the noisy input); STOI measures intelligibility and is
+essentially tied (0.896 vs 0.904). Both are computed against the known clean
+reference, so they only apply to the benchmark, not to uploads.
+
+![Perceptual metrics](assets/perceptual.png)
+
 ![Spectrograms](assets/spectrograms.png)
 
 ![ANC convergence](assets/learning.png)

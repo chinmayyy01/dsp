@@ -2,3 +2,5 @@
 matplotlib>=3.8
 pytest>=8.0
 httpx>=0.27
+pesq>=0.0.4
+pystoi>=0.4

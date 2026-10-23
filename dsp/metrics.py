@@ -2,6 +2,14 @@
 
 import numpy as np
 
+try:
+    from pesq import pesq as _pesq
+    from pystoi import stoi as _stoi
+
+    PERCEPTUAL_AVAILABLE = True
+except Exception:
+    PERCEPTUAL_AVAILABLE = False
+
 
 def rms(x: np.ndarray) -> float:
     x = np.asarray(x, dtype=np.float64)
@@ -63,3 +71,31 @@ def segmental_snr(clean: np.ndarray, estimate: np.ndarray, frame: int = 512,
         val = 10.0 * np.log10(np.sum(s ** 2) / (np.sum((s - e) ** 2) + 1e-20) + 1e-20)
         values.append(np.clip(val, floor_db, ceil_db))
     return float(np.mean(values)) if values else float("nan")
+
+
+def pesq_score(reference: np.ndarray, estimate: np.ndarray, fs: int) -> float | None:
+    """ITU-T P.862 wideband PESQ (1.0 bad .. 4.5 excellent)."""
+    if not PERCEPTUAL_AVAILABLE or fs not in (8000, 16000):
+        return None
+    n = min(len(reference), len(estimate))
+    if n < int(0.25 * fs):
+        return None
+    try:
+        return float(_pesq(fs, np.asarray(reference[:n], dtype=np.float64),
+                           np.asarray(estimate[:n], dtype=np.float64), "wb"))
+    except Exception:
+        return None
+
+
+def stoi_score(reference: np.ndarray, estimate: np.ndarray, fs: int) -> float | None:
+    """Short-time objective intelligibility (0 .. 1)."""
+    if not PERCEPTUAL_AVAILABLE or fs not in (8000, 16000):
+        return None
+    n = min(len(reference), len(estimate))
+    if n < int(0.25 * fs):
+        return None
+    try:
+        return float(_stoi(np.asarray(reference[:n], dtype=np.float64),
+                           np.asarray(estimate[:n], dtype=np.float64), fs, extended=False))
+    except Exception:
+        return None
